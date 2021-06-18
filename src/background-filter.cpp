@@ -46,6 +46,7 @@ struct background_removal_filter {
 	float contourFilter = 0.05f;
 	float smoothContour = 0.5f;
 	float feather = 0.0f;
+	float offset = 0.0f;
 	bool useGPU = false;
 	std::string modelSelection = MODEL_MEDIAPIPE;
 
@@ -129,6 +130,14 @@ static obs_properties_t *filter_properties(void *data)
 		"replaceColor",
 		obs_module_text("Background Color"));
 
+	obs_property_t *p_offset = obs_properties_add_float_slider(
+		props,
+		"offset",
+		obs_module_text("Offset of silhouette"),
+		-1.0,
+		 1.0,
+		0.05);
+
 	obs_property_t *p_use_gpu = obs_properties_add_bool(
 		props,
 		"useGPU",
@@ -160,6 +169,7 @@ static void filter_defaults(obs_data_t *settings) {
 	obs_data_set_default_double(settings, "smooth_contour", 0.5);
 	obs_data_set_default_double(settings, "feather", 0.0);
 	obs_data_set_default_int(settings, "replaceColor", 0x000000);
+	obs_data_set_default_double(settings, "offset", 0.0);
 	obs_data_set_default_bool(settings, "useGPU", false);
 	obs_data_set_default_string(settings, "model_select", MODEL_MEDIAPIPE);
 }
@@ -272,6 +282,7 @@ static void filter_update(void *data, obs_data_t *settings)
 	tf->contourFilter = (float)obs_data_get_double(settings, "contour_filter");
 	tf->smoothContour = (float)obs_data_get_double(settings, "smooth_contour");
 	tf->feather       = (float)obs_data_get_double(settings, "feather");
+	tf->offset       = (float)obs_data_get_double(settings, "offset");
 
 	const bool newUseGpu = (bool)obs_data_get_bool(settings, "useGPU");
 	const std::string newModel = obs_data_get_string(settings, "model_select");
@@ -496,6 +507,18 @@ static struct obs_source_frame * filter_render(void *data, struct obs_source_fra
 			int k_size = (int)(100 * tf->smoothContour);
 			cv::boxFilter(backgroundMask, backgroundMask, backgroundMask.depth(), cv::Size(k_size, k_size));
 			backgroundMask = backgroundMask > 128;
+		}
+
+		if (tf->offset != 0.0) {
+			// Offset mask
+			int k_size = (int)(-40 * tf->offset);
+			int abs_k_size = std::abs(k_size) ;
+			if (abs_k_size > 0) {
+				int operation = k_size < 0 ? cv::MORPH_ERODE : cv::MORPH_DILATE;
+				cv::Mat kernel = getStructuringElement( cv::MORPH_ELLIPSE, cv::Size( abs_k_size, abs_k_size ));
+
+				morphologyEx( backgroundMask, backgroundMask, operation, kernel );
+			}
 		}
 
 		if (tf->feather > 0.0) {
